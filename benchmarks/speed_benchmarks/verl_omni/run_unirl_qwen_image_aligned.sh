@@ -27,13 +27,10 @@ python -m unirl.train_diffusion --config-name=diffusion/qwen_image/qwen_image_gr
   stack.micro_batch_size=16 \
   backend.lora_cfg.rank=64 backend.lora_cfg.alpha=128 \
   'backend.lora_cfg.target_modules=[to_q,to_k,to_v,"to_out.0",add_q_proj,add_k_proj,add_v_proj,to_add_out,"img_mlp.net.0.proj","img_mlp.net.2","txt_mlp.net.0.proj","txt_mlp.net.2"]' \
-  reward.backend._target_=unirl.reward.local.ocr.OCRRewardScorer \
-  reward.backend.config._target_=unirl.reward.local.ocr.OCRSpec \
-  '~reward.backend.config.batch_size' \
-  '~reward.backend.config.device' \
-  '~reward.backend.config.processor_id' \
-  '~reward.backend.config.model_id' \
-  reward.backend.config.lang=en \
+  '~reward.backend' \
+  +reward.backend._target_=unirl.reward.local.ocr.OCRRewardScorer \
+  +reward.backend.base_device=cuda \
+  +reward.backend.config._target_=unirl.reward.local.ocr.OCRSpec \
   data_source.args.run.data_path=datasets/ocr/train.txt \
   data_source.args.run.eval_data_path=datasets/ocr/test.txt \
   eval_interval=0 save_interval=0 \
