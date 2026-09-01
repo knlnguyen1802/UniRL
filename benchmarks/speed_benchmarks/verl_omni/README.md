@@ -11,6 +11,11 @@ number below was measured against** (no code copied; `git submodule update --ini
 benchmarks/speed_benchmarks/verl_omni/upstream` to fetch). Bump the pin only together
 with a re-run of the pair.
 
+Two runnable aligned pairs live here: **SD3.5 + FlowGRPO + PickScore** (measured)
+and **Qwen-Image + FlowGRPO + OCR** (pinned from verl-omni's
+`examples/flowgrpo_trainer/qwen_image/run_qwen_image_ocr_lora.sh`; fill the
+measured table after a run).
+
 ## Hands-on: the aligned SD3.5 + FlowGRPO pair
 
 One aligned workload, three runnable commands. Both sides: 48 prompts/step ×
@@ -72,11 +77,78 @@ metadata` hangs on your network, set a crates mirror and `[http] multiplexing = 
 on driver-535 fleets the cu13 torch stack needs NVIDIA's `cuda-compat-13-*` forward-compat
 libs on `LD_LIBRARY_PATH`; `HF_HUB_DISABLE_XET=1` if xet-backed HF downloads stall.
 
+## Hands-on: the aligned Qwen-Image + FlowGRPO OCR pair
+
+One aligned workload, pinned from verl-omni's
+[`run_qwen_image_ocr_lora.sh`](https://github.com/verl-project/verl-omni/blob/main/examples/flowgrpo_trainer/qwen_image/run_qwen_image_ocr_lora.sh).
+Both sides: 32 prompts/step × 16 samples/prompt @512², 10 denoise steps, true-CFG
+4.0, SDE noise on 2 of the first 5 steps (`eta`/`noise_level` 1.2), 2 mini-batch
+updates/step (micro 16/GPU), LoRA r64/α128 on the 8 attention projections **plus**
+the 4 img/txt MLP projections, lr 3e-4 / wd 1e-4 / clip 1e-5, no KL/ref, FSDP2
+CPU offload, the same `datasets/ocr` prompts, 1×4 GPUs, val/save off.
+
+```bash
+# 0. one-time: fetch the pinned upstream + build verl-omni's prompt parquet
+git submodule update --init benchmarks/speed_benchmarks/verl_omni/upstream
+python benchmarks/speed_benchmarks/verl_omni/make_ocr_parquet.py   # → ~/data/ocr/qwen_image
+
+# 1. UniRL side (UniRL env, repo root; needs paddleocr + python-Levenshtein)
+QWEN_IMAGE=Qwen/Qwen-Image STEPS=25 GPUS=4 \
+  bash benchmarks/speed_benchmarks/verl_omni/run_unirl_qwen_image_aligned.sh 2>&1 | tee unirl_qwen.log
+python benchmarks/speed_benchmarks/parse_perf.py unirl_qwen.log --samples-per-step 512 --gpus 4
+
+# 2. verl-omni side (verl-omni env per upstream/docs/start/install.md, same GPUs, one at a time)
+QWEN_IMAGE=Qwen/Qwen-Image STEPS=25 ATTN=sdpa GPUS=4 \
+  bash benchmarks/speed_benchmarks/verl_omni/run_verlomni_qwen_image_aligned.sh 2>&1 | tee verlomni_qwen.log
+python benchmarks/speed_benchmarks/verl_omni/parse_verl_timing.py verlomni_qwen.log --samples-per-step 512 --gpus 4
+```
+
+`ATTN=sdpa` is the backend-aligned row (UniRL's diffusers/vLLM-Omni stack runs
+SDPA-class kernels); `ATTN=fa3` runs verl-omni's own default attention (FA3 hub
+kernel actor + `FLASH_ATTN_3_HUB` rollout) as its best-config row.
+
+Point `VERL_OMNI=` at a local verl-omni checkout if the submodule is not
+initialized.
+
+## Measured (Qwen-Image OCR, 1×4 GPUs, 25 steps, first 2 dropped)
+
+| side | attention | median s/step | p90 | samples/GPU-h | rel. |
+|---|---|---|---|---|---|
+| **UniRL** (`qwen_image_grpo_vllmomni.yaml`, overrides above) | SDPA | — | — | — | — |
+| verl-omni | SDPA-aligned | — | — | — | — |
+| verl-omni | FA3 (its default) | — | — | — | — |
+
+Paste numbers after a run. verl-omni's published recipe row on 4×H800 (300-step
+training, not this 25-step speed cut) is 420 s/step / 0.305 samples/GPU/s with
+its FA3 default — use that only as a ballpark, not as a paired number.
+
+Disclosed differences (inherent to an end-to-end framework comparison):
+
+- **Reward backend is not the same scorer.** verl-omni colocates
+  `Qwen/Qwen3-VL-8B-Instruct` GenRM OCR (`genrm_ocr.py`, TP=4 on the same 4
+  GPUs). UniRL has no colocated Qwen3-VL GenRM; it uses in-process PaddleOCR
+  (CPU) with the same quoted-span + Levenshtein formula. Reward GPU time is
+  counted on the verl-omni side and essentially free on the UniRL side — do
+  not treat samples/GPU-h as a pure train+rollout comparison. A
+  time-to-reward-threshold curve with one scorer remains the fairest long-run
+  evidence.
+- **Each framework runs its own pinned rollout stack** (same class of mismatch
+  as the SD3.5 pair). UniRL's Qwen-Image vLLM-Omni stage uses `max_num_seqs=1`;
+  verl-omni's recipe packs with `max_num_seqs=8`.
+- verl's pipeline recomputes `old_log_prob` post-rollout; UniRL takes SDE
+  log-probs from the engine during rollout and anchors `old_logp_source=replay`.
+- SDE index selection is verl's contiguous `sde` window of size 2 in `[0,5]`
+  vs UniRL's `FlowSDEStrategy` + `AllSDEScheduler` drawing 2 of the first 5
+  steps — same denoise FLOP shape.
+- Same prompt files (`datasets/ocr`); verl-omni wraps them in a chat-template
+  parquet then strips the system turn via `custom_chat_template` so both sides
+  encode the raw user line. Each side's own seed-42 shuffle order.
+
 ## Other overlapping (model, algorithm) pairs, both natively supported
 
 | pair | UniRL side | verl-omni side |
 |---|---|---|
-| Qwen-Image + FlowGRPO | `examples/diffusion/qwen_image/qwen_image_grpo_vllmomni.yaml` | its reference recipe |
+| Qwen-Image + FlowGRPO + OCR | `run_unirl_qwen_image_aligned.sh` | `run_verlomni_qwen_image_aligned.sh` (from `run_qwen_image_ocr_lora.sh`) |
 | Wan2.2-T2V-14B + DanceGRPO | `examples/diffusion/wan22/wan22_t2v_14b_dancegrpo.yaml` | its Wan2.2 recipe |
 
 Same protocol when running these: pin the workload from the verl-omni recipe, same
