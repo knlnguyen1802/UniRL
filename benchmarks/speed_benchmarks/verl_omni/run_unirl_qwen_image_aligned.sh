@@ -33,5 +33,4 @@ python -m unirl.train_diffusion --config-name=diffusion/qwen_image/qwen_image_gr
   +reward.backend.config._target_=unirl.reward.local.ocr.OCRSpec \
   data_source.args.run.data_path=datasets/ocr/train.txt \
   data_source.args.run.eval_data_path=datasets/ocr/test.txt \
-  eval_interval=0 save_interval=0 \
   num_rollouts=${STEPS:-25} "$@"
