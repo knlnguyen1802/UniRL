@@ -226,6 +226,10 @@ class UniRLWandBLogger:
         self._initialized = False
         self._optimizer_step = int(optimizer_step)
         self.memory_monitor = None
+        # Stashed by log_rollout_step for the next log_progress console line
+        # (works with wandb off — timing is recorded before the enabled gate).
+        self._last_step_time_s: Optional[float] = None
+        self._last_phase_times: Dict[str, float] = {}
 
         self.enabled = enabled and rank == 0
 
@@ -552,6 +556,10 @@ class UniRLWandBLogger:
         extra_metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Log one rollout's metrics to wandb. No-op when disabled."""
+        # Always stash for console progress (even when wandb reporting is off).
+        self._last_step_time_s = float(step_time_s) if step_time_s is not None else None
+        self._last_phase_times = {str(k): float(v) for k, v in (phase_times or {}).items()}
+
         mem_summary = self.memory_monitor.step_summary(step=rollout_id + 1) if self.memory_monitor is not None else None
         if not self.enabled or not self._initialized:
             return
@@ -566,10 +574,10 @@ class UniRLWandBLogger:
         self._log_train(results)
 
         perf: Dict[str, float] = {}
-        if step_time_s is not None:
-            perf["step_time_s"] = float(step_time_s)
-        if phase_times:
-            perf.update({f"{name}_time_s": float(v) for name, v in phase_times.items()})
+        if self._last_step_time_s is not None:
+            perf["step_time_s"] = self._last_step_time_s
+        if self._last_phase_times:
+            perf.update({f"{name}_time_s": v for name, v in self._last_phase_times.items()})
         if mem_summary:
             perf.update(mem_summary)
         if perf:
@@ -634,7 +642,15 @@ class UniRLWandBLogger:
         extra: Optional[Dict[str, Any]] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
-        """Emit the one-line stdout progress summary for a rollout."""
+        """Emit the one-line stdout progress summary for a rollout.
+
+        NOT gated by ``enabled`` — console progress prints even when wandb
+        reporting is off. Appends ``dt=…s`` and per-phase wall-clocks stashed
+        by the preceding :meth:`log_rollout_step` (via ``install_phase_timing``).
+        Generic over single- and multi-track ``results``: a single result
+        renders ``loss/grad_norm/lr`` (+ ``ratio``/``clip`` when the algorithm
+        reported them); a dict renders one ``name[...]`` group per track.
+        """
         log = logger if logger is not None else module_logger
 
         def _metric(metrics: Any, key: str) -> Optional[float]:
@@ -668,13 +684,36 @@ class UniRLWandBLogger:
             body = "  ".join(f"{name}[{_fmt(result)}]" for name, result in results.items())
         else:
             body = _fmt(results)
+        # Wall-clock from the preceding log_rollout_step (wandb-independent).
+        _PHASE_ORDER = ("wake_up", "generate", "sleep", "weight_sync", "reward", "train")
+        _PHASE_SHORT = {
+            "wake_up": "wake",
+            "generate": "gen",
+            "sleep": "sleep",
+            "weight_sync": "sync",
+            "reward": "reward",
+            "train": "train",
+        }
+        timing_parts: list[str] = []
+        if self._last_step_time_s is not None:
+            timing_parts.append(f"dt={self._last_step_time_s:.1f}s")
+        seen = set()
+        for name in _PHASE_ORDER:
+            if name in self._last_phase_times:
+                timing_parts.append(f"{_PHASE_SHORT[name]}={self._last_phase_times[name]:.1f}s")
+                seen.add(name)
+        for name, value in self._last_phase_times.items():
+            if name not in seen:
+                timing_parts.append(f"{name}={value:.1f}s")
+        timing = (" " + " ".join(timing_parts)) if timing_parts else ""
         suffix = ("  " + " ".join(f"{k}={v}" for k, v in extra.items())) if extra else ""
         log.info(
-            "rollout %d/%d  reward=%.4f  %s%s",
+            "rollout %d/%d  reward=%.4f  %s%s%s",
             rollout_id + 1,
             num_rollouts,
             mean_reward,
             body,
+            timing,
             suffix,
         )
 
