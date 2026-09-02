@@ -75,8 +75,14 @@ class OCRRewardScorer(LocalRewardBackend):
             "use_doc_orientation_classify": False,
             "use_doc_unwarping": False,
             "use_textline_orientation": False,
-            "lang": self.model_kwargs.get("lang", "en"),
+            "lang": os.environ.get("UNIRL_OCR_LANG") or self.model_kwargs.get("lang", "en"),
         }
+        det_dir = os.environ.get("UNIRL_OCR_DET_DIR", "").strip()
+        rec_dir = os.environ.get("UNIRL_OCR_REC_DIR", "").strip()
+        if det_dir:
+            ocr_kwargs["text_detection_model_dir"] = det_dir
+        if rec_dir:
+            ocr_kwargs["text_recognition_model_dir"] = rec_dir
         try:
             import inspect
 
@@ -87,9 +93,20 @@ class OCRRewardScorer(LocalRewardBackend):
         try:
             self._ocr_reader = PaddleOCR(**ocr_kwargs)
         except Exception as exc:
+            msg = str(exc).lower()
+            extras_missing = (
+                "require_extra" in msg or "paddlex extras" in msg or ("extra" in msg and "ocr" in msg)
+            )
+            if extras_missing:
+                raise ImportError(
+                    "PaddleOCR 3.x needs the PaddleX OCR extras. In the UniRL venv run: "
+                    'pip install "paddlex[ocr-core]"   # or: pip install "paddlex[ocr]"'
+                ) from exc
             raise ImportError(
-                "PaddleOCR 3.x needs the PaddleX OCR extras. In the UniRL venv run: "
-                'pip install "paddlex[ocr-core]"   # or: pip install "paddlex[ocr]"'
+                "PaddleOCR failed to load official weights. Wipe the incomplete cache and "
+                "prefetch with HF_HUB_DISABLE_XET=1, or point UNIRL_OCR_DET_DIR / "
+                "UNIRL_OCR_REC_DIR at complete local model dirs. "
+                "See benchmarks/speed_benchmarks/verl_omni/prefetch_ocr_models.py."
             ) from exc
         self._levenshtein_distance = levenshtein_distance
         self.model = "ocr"

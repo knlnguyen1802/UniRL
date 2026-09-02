@@ -96,6 +96,13 @@ python benchmarks/speed_benchmarks/verl_omni/make_ocr_parquet.py   # → ~/data/
 #    framework, not the unrelated PyPI package named `paddle`:
 #      pip uninstall -y paddle
 #      pip install paddlepaddle paddleocr "paddlex[ocr-core]" python-Levenshtein
+#    Prefetch OCR weights on a login node (HF Xet often aborts mid-file):
+#      export HF_HUB_DISABLE_XET=1
+#      # optional: export PADDLE_PDX_MODEL_SOURCE=bos
+#      # optional: export PADDLE_PDX_CACHE_HOME=/data/.../paddlex
+#      python benchmarks/speed_benchmarks/verl_omni/prefetch_ocr_models.py
+#      export UNIRL_OCR_DET_DIR=$PADDLE_PDX_CACHE_HOME/official_models/<det>
+#      export UNIRL_OCR_REC_DIR=$PADDLE_PDX_CACHE_HOME/official_models/<rec>
 QWEN_IMAGE=Qwen/Qwen-Image STEPS=25 GPUS=4 \
   bash benchmarks/speed_benchmarks/verl_omni/run_unirl_qwen_image_aligned.sh 2>&1 | tee unirl_qwen.log
 python benchmarks/speed_benchmarks/parse_perf.py unirl_qwen.log --samples-per-step 512 --gpus 4

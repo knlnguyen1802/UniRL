@@ -5,6 +5,10 @@
 # Run from the UniRL repo root, inside a UniRL environment, 1x4 GPUs.
 #   QWEN_IMAGE=<hf-id-or-local-dir> STEPS=25 GPUS=4 \
 #     bash benchmarks/speed_benchmarks/verl_omni/run_unirl_qwen_image_aligned.sh
+# OCR weights: prefetch with HF_HUB_DISABLE_XET=1, then:
+#   export PADDLE_PDX_CACHE_HOME=/path/to/paddlex
+#   export UNIRL_OCR_DET_DIR=$PADDLE_PDX_CACHE_HOME/official_models/<det>
+#   export UNIRL_OCR_REC_DIR=$PADDLE_PDX_CACHE_HOME/official_models/<rec>
 # Then: python benchmarks/speed_benchmarks/parse_perf.py <log> --samples-per-step 512 --gpus 4
 set -ex
 export QWEN_IMAGE_PATH=${QWEN_IMAGE:-Qwen/Qwen-Image}
