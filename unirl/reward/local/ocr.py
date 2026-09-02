@@ -84,7 +84,13 @@ class OCRRewardScorer(LocalRewardBackend):
                 ocr_kwargs["device"] = "cpu"
         except (TypeError, ValueError):
             pass
-        self._ocr_reader = PaddleOCR(**ocr_kwargs)
+        try:
+            self._ocr_reader = PaddleOCR(**ocr_kwargs)
+        except Exception as exc:
+            raise ImportError(
+                "PaddleOCR 3.x needs the PaddleX OCR extras. In the UniRL venv run: "
+                'pip install "paddlex[ocr-core]"   # or: pip install "paddlex[ocr]"'
+            ) from exc
         self._levenshtein_distance = levenshtein_distance
         self.model = "ocr"
 

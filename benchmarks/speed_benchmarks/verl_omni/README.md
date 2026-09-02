@@ -94,7 +94,8 @@ python benchmarks/speed_benchmarks/verl_omni/make_ocr_parquet.py   # → ~/data/
 
 # 1. UniRL side (UniRL env, repo root). OCR reward needs the real PaddlePaddle
 #    framework, not the unrelated PyPI package named `paddle`:
-#      pip uninstall -y paddle && pip install paddlepaddle paddleocr python-Levenshtein
+#      pip uninstall -y paddle
+#      pip install paddlepaddle paddleocr "paddlex[ocr-core]" python-Levenshtein
 QWEN_IMAGE=Qwen/Qwen-Image STEPS=25 GPUS=4 \
   bash benchmarks/speed_benchmarks/verl_omni/run_unirl_qwen_image_aligned.sh 2>&1 | tee unirl_qwen.log
 python benchmarks/speed_benchmarks/parse_perf.py unirl_qwen.log --samples-per-step 512 --gpus 4
