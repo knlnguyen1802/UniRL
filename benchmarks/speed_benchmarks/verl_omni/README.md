@@ -92,7 +92,9 @@ CPU offload, the same `datasets/ocr` prompts, 1×4 GPUs, val/save off.
 git submodule update --init benchmarks/speed_benchmarks/verl_omni/upstream
 python benchmarks/speed_benchmarks/verl_omni/make_ocr_parquet.py   # → ~/data/ocr/qwen_image
 
-# 1. UniRL side (UniRL env, repo root; needs paddleocr + python-Levenshtein)
+# 1. UniRL side (UniRL env, repo root). OCR reward needs the real PaddlePaddle
+#    framework, not the unrelated PyPI package named `paddle`:
+#      pip uninstall -y paddle && pip install paddlepaddle paddleocr python-Levenshtein
 QWEN_IMAGE=Qwen/Qwen-Image STEPS=25 GPUS=4 \
   bash benchmarks/speed_benchmarks/verl_omni/run_unirl_qwen_image_aligned.sh 2>&1 | tee unirl_qwen.log
 python benchmarks/speed_benchmarks/parse_perf.py unirl_qwen.log --samples-per-step 512 --gpus 4

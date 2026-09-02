@@ -17,6 +17,34 @@ from .base import LocalRewardBackend
 
 logger = logging.getLogger(__name__)
 
+_PADDLEPADDLE_INSTALL = (
+    "OCR reward needs the PaddlePaddle framework package `paddlepaddle` "
+    "(or `paddlepaddle-gpu`). A different third-party PyPI package named "
+    "`paddle` is on sys.path — that stub has no `set_device`. Fix with: "
+    "pip uninstall -y paddle && pip install paddlepaddle"
+)
+
+
+def _paddle_set_device(paddle):
+    fn = getattr(paddle, "set_device", None)
+    if callable(fn):
+        return fn
+    fn = getattr(getattr(paddle, "device", None), "set_device", None)
+    return fn if callable(fn) else None
+
+
+def _import_paddlepaddle():
+    """Import the real PaddlePaddle module; reject the unrelated PyPI `paddle` stub."""
+    try:
+        import paddle
+    except ImportError as exc:
+        raise ImportError(_PADDLEPADDLE_INSTALL) from exc
+    if _paddle_set_device(paddle) is None:
+        raise ImportError(
+            f"{_PADDLEPADDLE_INSTALL} (imported paddle from {getattr(paddle, '__file__', paddle)!r})"
+        )
+    return paddle
+
 
 class OCRRewardScorer(LocalRewardBackend):
     """OCR reward for text rendering tasks."""
@@ -40,15 +68,23 @@ class OCRRewardScorer(LocalRewardBackend):
                 "python-Levenshtein is required for OCR reward. Install with: pip install python-Levenshtein"
             )
 
-        import paddle
+        paddle = _import_paddlepaddle()
+        _paddle_set_device(paddle)("cpu")
 
-        paddle.set_device("cpu")
-        self._ocr_reader = PaddleOCR(
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-            lang=self.model_kwargs.get("lang", "en"),
-        )
+        ocr_kwargs = {
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+            "lang": self.model_kwargs.get("lang", "en"),
+        }
+        try:
+            import inspect
+
+            if "device" in inspect.signature(PaddleOCR.__init__).parameters:
+                ocr_kwargs["device"] = "cpu"
+        except (TypeError, ValueError):
+            pass
+        self._ocr_reader = PaddleOCR(**ocr_kwargs)
         self._levenshtein_distance = levenshtein_distance
         self.model = "ocr"
 
